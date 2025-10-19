@@ -1,22 +1,37 @@
-import React, { useState } from 'react';
+import React, { useState, lazy, Suspense } from 'react';
 import { Chapter } from './types';
 import FileUpload from './components/FileUpload';
 import JsonViewer from './components/JsonViewer';
-import PdfViewer from './components/PdfViewer';
 
-// PDF.js worker is now configured in `pdf-config.ts` which is imported in `index.tsx`
+// Lazily load the PdfViewer component
+const PdfViewer = lazy(() => import('./components/PdfViewer'));
+
+const LoadingSpinner: React.FC = () => (
+    <div className="flex items-center justify-center h-full w-full">
+        <div className="flex flex-col items-center gap-4 text-gray-400">
+             <svg className="animate-spin h-10 w-10 text-indigo-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <p>Loading PDF Viewer...</p>
+        </div>
+    </div>
+);
+
 
 const App: React.FC = () => {
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [jsonData, setJsonData] = useState<Chapter[] | null>(null);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [activeChapterIndex, setActiveChapterIndex] = useState<number | null>(null);
+  const [pdfSessionId, setPdfSessionId] = useState<number>(0);
 
   const handleFilesUploaded = (pdf: File, json: Chapter[]) => {
     setPdfFile(pdf);
     setJsonData(json);
     setCurrentPage(1);
     setActiveChapterIndex(null);
+    setPdfSessionId(Date.now()); // Create a new session ID to force remount
   };
 
   const handlePageSelect = (page: number, index: number) => {
@@ -64,11 +79,14 @@ const App: React.FC = () => {
               />
             </aside>
             <section className="w-3/5 h-full bg-gray-900 flex-grow">
-              <PdfViewer 
-                file={pdfFile} 
-                pageNumber={currentPage}
-                setPageNumber={setCurrentPage}
-              />
+              <Suspense fallback={<LoadingSpinner />}>
+                <PdfViewer 
+                  file={pdfFile} 
+                  pageNumber={currentPage}
+                  setPageNumber={setCurrentPage}
+                  sessionId={pdfSessionId}
+                />
+              </Suspense>
             </section>
           </div>
         )}

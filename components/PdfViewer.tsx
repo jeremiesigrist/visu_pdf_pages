@@ -1,10 +1,18 @@
-import React, { useState } from 'react';
-import { Document, Page } from 'react-pdf';
+import React, { useState, useEffect, useRef } from 'react';
+import { getDocument } from 'pdfjs-dist';
+
+// Define a type for the PDF document proxy to avoid using 'any'.
+type PDFDocumentProxy = {
+  numPages: number;
+  getPage(pageNumber: number): Promise<any>;
+  destroy(): void;
+};
 
 interface PdfViewerProps {
   file: File;
   pageNumber: number;
   setPageNumber: (page: number) => void;
+  sessionId: number;
 }
 
 const LoadingSpinner: React.FC = () => (
@@ -16,17 +24,84 @@ const LoadingSpinner: React.FC = () => (
     </div>
 );
 
-
-const PdfViewer: React.FC<PdfViewerProps> = ({ file, pageNumber, setPageNumber }) => {
+const PdfViewer: React.FC<PdfViewerProps> = ({ file, pageNumber, setPageNumber, sessionId }) => {
   const [numPages, setNumPages] = useState<number | null>(null);
+  const [pdfDoc, setPdfDoc] = useState<PDFDocumentProxy | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  function onDocumentLoadSuccess({ numPages }: { numPages: number }) {
-    setNumPages(numPages);
-    // Ensure the current page isn't out of bounds after a new doc loads
-    if (pageNumber > numPages) {
-        setPageNumber(numPages);
-    }
-  }
+  useEffect(() => {
+    const loadPdf = async () => {
+      if (!file) return;
+
+      if (pdfDoc) {
+        pdfDoc.destroy();
+      }
+      
+      setLoading(true);
+      setError(null);
+      setPdfDoc(null);
+      setNumPages(null);
+
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const typedArray = new Uint8Array(arrayBuffer);
+        const doc = await getDocument(typedArray).promise as PDFDocumentProxy;
+        setPdfDoc(doc);
+        setNumPages(doc.numPages);
+        if (pageNumber > doc.numPages) {
+          setPageNumber(1);
+        }
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
+        console.error('Error loading PDF document:', err);
+        setError(`Failed to load PDF: ${errorMessage}`);
+        setLoading(false);
+      }
+    };
+    
+    loadPdf();
+    
+    return () => {
+      pdfDoc?.destroy();
+    };
+  }, [file, sessionId]);
+
+  useEffect(() => {
+    if (!pdfDoc || !canvasRef.current || !containerRef.current) return;
+
+    const renderPage = async () => {
+      setLoading(true);
+      try {
+        const page = await pdfDoc.getPage(pageNumber);
+        const containerWidth = containerRef.current!.clientWidth;
+        const viewport = page.getViewport({ scale: 1 });
+        const scale = containerWidth / viewport.width;
+        const scaledViewport = page.getViewport({ scale });
+
+        const canvas = canvasRef.current!;
+        const context = canvas.getContext('2d');
+        if (context) {
+          canvas.height = scaledViewport.height;
+          canvas.width = scaledViewport.width;
+          const renderContext = {
+            canvasContext: context,
+            viewport: scaledViewport,
+          };
+          await page.render(renderContext).promise;
+        }
+      } catch (err) {
+        console.error('Error rendering page:', err);
+        setError('Failed to render page.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    renderPage();
+  }, [pdfDoc, pageNumber]);
   
   const goToPrevPage = () => {
     if (pageNumber > 1) {
@@ -43,36 +118,42 @@ const PdfViewer: React.FC<PdfViewerProps> = ({ file, pageNumber, setPageNumber }
   const handlePageInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const value = e.target.value;
       if (value === '') {
-          // Allow empty input for typing
-      } else {
-          const newPage = parseInt(value, 10);
-          if (!isNaN(newPage) && newPage > 0 && numPages && newPage <= numPages) {
-              setPageNumber(newPage);
-          }
+          return;
+      }
+      const newPage = parseInt(value, 10);
+      if (!isNaN(newPage) && newPage > 0 && numPages && newPage <= numPages) {
+          setPageNumber(newPage);
       }
   };
   
   const handlePageInputBlur = (e: React.ChangeEvent<HTMLInputElement>) => {
       if(e.target.value === '') {
-          setPageNumber(pageNumber); // Reset if empty
+          setPageNumber(pageNumber);
       }
   };
 
   return (
     <div className="flex flex-col h-full w-full bg-gray-900">
-      <div className="flex-grow overflow-auto p-4">
-        <Document
-          file={file}
-          onLoadSuccess={onDocumentLoadSuccess}
-          loading={<LoadingSpinner />}
-          error={<p className="text-red-400 text-center p-4">Failed to load PDF file.</p>}
-        >
-          <Page 
-            key={file ? file.name + pageNumber : pageNumber}
-            pageNumber={pageNumber} 
-            loading={<LoadingSpinner />}
-            />
-        </Document>
+      <div ref={containerRef} className="flex-grow overflow-auto p-4 flex items-start justify-center relative">
+        {(loading && !error) && (
+            <div className="absolute inset-0 flex items-center justify-center bg-gray-900/50 z-10">
+                <LoadingSpinner />
+            </div>
+        )}
+        {error && (
+          <div className="text-red-400 text-center p-4">
+            <p>{error}</p>
+          </div>
+        )}
+        <canvas 
+          ref={canvasRef} 
+          className="transition-opacity duration-300"
+          style={{ 
+            maxWidth: '100%', 
+            height: 'auto',
+            opacity: (loading || error) ? 0 : 1,
+          }}
+        />
       </div>
       {numPages && (
         <div className="flex-shrink-0 bg-gray-800 p-2 border-t border-gray-700 flex justify-center items-center gap-4">
