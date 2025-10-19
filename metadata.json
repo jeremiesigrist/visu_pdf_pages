@@ -1,0 +1,5 @@
+{
+  "name": "PDF Chapter Verifier",
+  "description": "An application to visually verify chapter page numbers from a JSON file against a corresponding PDF document. Users can upload both files and click on page numbers in the JSON view to navigate the PDF instantly.",
+  "requestFramePermissions": []
+}
