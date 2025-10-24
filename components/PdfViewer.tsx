@@ -19,6 +19,8 @@ interface PdfViewerProps {
   pageNumber: number;
   setPageNumber: (page: number) => void;
   sessionId: number;
+  searchText: string | null;
+  onSearchComplete: (result: { found: boolean, page?: number } | null) => void;
 }
 
 const LoadingSpinner: React.FC = () => (
@@ -30,13 +32,14 @@ const LoadingSpinner: React.FC = () => (
     </div>
 );
 
-const PdfViewer: React.FC<PdfViewerProps> = ({ file, pageNumber, setPageNumber, sessionId }) => {
+const PdfViewer: React.FC<PdfViewerProps> = ({ file, pageNumber, setPageNumber, sessionId, searchText, onSearchComplete }) => {
   const [numPages, setNumPages] = useState<number | null>(null);
   const [pdfDoc, setPdfDoc] = useState<PDFDocumentProxy | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const textLayerRef = useRef<HTMLDivElement>(null);
   const renderTaskRef = useRef<RenderTask | null>(null);
 
   useEffect(() => {
@@ -78,10 +81,9 @@ const PdfViewer: React.FC<PdfViewerProps> = ({ file, pageNumber, setPageNumber, 
   }, [file, sessionId]);
 
   useEffect(() => {
-    if (!pdfDoc || !canvasRef.current || !containerRef.current) return;
+    if (!pdfDoc || !canvasRef.current || !containerRef.current || !textLayerRef.current) return;
 
     let isStale = false;
-    
     renderTaskRef.current?.cancel();
 
     const renderPage = async () => {
@@ -98,9 +100,10 @@ const PdfViewer: React.FC<PdfViewerProps> = ({ file, pageNumber, setPageNumber, 
         const viewport = page.getViewport({ scale: 1 });
         const scale = containerWidth / viewport.width;
         const scaledViewport = page.getViewport({ scale });
-
+        
         const canvas = canvasRef.current!;
         const context = canvas.getContext('2d');
+
         if (context) {
           canvas.height = scaledViewport.height;
           canvas.width = scaledViewport.width;
@@ -112,26 +115,38 @@ const PdfViewer: React.FC<PdfViewerProps> = ({ file, pageNumber, setPageNumber, 
 
           const task = page.render(renderContext) as RenderTask;
           renderTaskRef.current = task;
-          
           await task.promise;
+        }
+        
+        // Render text layer
+        const textContent = await page.getTextContent();
+        if (isStale) return;
+        
+        const textLayerDiv = textLayerRef.current!;
+        textLayerDiv.innerHTML = ''; // Clear previous text layer
+        textLayerDiv.style.width = `${scaledViewport.width}px`;
+        textLayerDiv.style.height = `${scaledViewport.height}px`;
 
-          if (!isStale) {
+        const { renderTextLayer } = await import('pdfjs-dist');
+        await renderTextLayer({
+            textContentSource: textContent,
+            container: textLayerDiv,
+            viewport: scaledViewport,
+            textDivs: [],
+        }).promise;
+          
+        if (!isStale) {
             setLoading(false);
             setError(null);
-          }
         }
+
       } catch (err: any) {
         if (isStale || err.name === 'RenderingCancelledException') {
             return;
         }
-        
         console.error('Error rendering page:', err);
         setError('Failed to render page.');
         setLoading(false);
-      } finally {
-          if (renderTaskRef.current) {
-              renderTaskRef.current = null;
-          }
       }
     };
 
@@ -141,6 +156,29 @@ const PdfViewer: React.FC<PdfViewerProps> = ({ file, pageNumber, setPageNumber, 
       isStale = true;
     };
   }, [pdfDoc, pageNumber]);
+
+  useEffect(() => {
+    const searchForText = async () => {
+        if (!searchText || !pdfDoc) {
+            onSearchComplete(null);
+            return;
+        }
+
+        for (let i = 1; i <= pdfDoc.numPages; i++) {
+            const page = await pdfDoc.getPage(i);
+            const textContent = await page.getTextContent();
+            const pageText = textContent.items.map((item: any) => item.str).join(' ');
+            if (pageText.toLowerCase().includes(searchText.toLowerCase())) {
+                onSearchComplete({ found: true, page: i });
+                return;
+            }
+        }
+
+        onSearchComplete({ found: false });
+    };
+
+    searchForText();
+  }, [searchText, pdfDoc]);
   
   const goToPrevPage = () => {
     if (pageNumber > 1) {
@@ -183,27 +221,30 @@ const PdfViewer: React.FC<PdfViewerProps> = ({ file, pageNumber, setPageNumber, 
     <div className="flex flex-col h-full w-full bg-gray-900">
       <div ref={containerRef} className="flex-grow overflow-auto p-4 flex items-start justify-center relative">
         {(loading && !error) && (
-            <div className="absolute inset-0 flex items-center justify-center bg-gray-900/50 z-10">
+            <div className="absolute inset-0 flex items-center justify-center bg-gray-900/50 z-20">
                 <LoadingSpinner />
             </div>
         )}
         {error && (
-          <div className="absolute inset-0 flex items-center justify-center bg-red-900/20 z-20">
+          <div className="absolute inset-0 flex items-center justify-center bg-red-900/20 z-30">
             <div className="text-red-400 text-center p-4 bg-gray-800 rounded-lg shadow-xl">
                 <p className="font-bold text-lg">Render Error</p>
                 <p>{error}</p>
             </div>
           </div>
         )}
-        <canvas 
-          ref={canvasRef} 
-          className="transition-opacity duration-300 shadow-lg"
+        <div 
+          className="relative" 
           style={{ 
-            maxWidth: '100%', 
-            height: 'auto',
             opacity: (loading || error) ? 0.5 : 1,
-          }}
-        />
+            transition: 'opacity 0.3s'
+          }}>
+          <canvas 
+            ref={canvasRef} 
+            className="shadow-lg"
+          />
+          <div ref={textLayerRef} className="textLayer absolute top-0 left-0" />
+        </div>
       </div>
       {numPages && (
         <div className="flex-shrink-0 bg-gray-800 p-2 border-t border-gray-700 flex justify-center items-center gap-4">

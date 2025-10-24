@@ -1,9 +1,8 @@
-
 import React, { useState, useRef } from 'react';
-import { ChapterFromFile } from '../types';
+import { ChapterFromFile, QCM } from '../types';
 
 interface FileUploadProps {
-  onFilesUploaded: (pdf: File, json: ChapterFromFile[]) => void;
+  onFilesUploaded: (pdf: File, data: ChapterFromFile[] | QCM[], mode: 'chapter' | 'qcm') => void;
 }
 
 const FileUpload: React.FC<FileUploadProps> = ({ onFilesUploaded }) => {
@@ -25,6 +24,35 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFilesUploaded }) => {
     setError(null);
   };
 
+  const parseQcmJson = (data: any): QCM[] => {
+    let allQcms: QCM[] = [];
+    
+    function findQcms(obj: any, context: { chapter: string }) {
+      if (Array.isArray(obj)) {
+        for (const item of obj) {
+          findQcms(item, context);
+        }
+      } else if (typeof obj === 'object' && obj !== null) {
+        if (obj.chapitre && Array.isArray(obj.qcm)) {
+          const newContext = { ...context, chapter: obj.chapitre };
+          const qcmsWithContext = obj.qcm.map((q: any) => ({
+            ...q,
+            id: crypto.randomUUID(),
+            sourceChapter: newContext.chapter,
+          }));
+          allQcms.push(...qcmsWithContext);
+        } else {
+          for (const key in obj) {
+            findQcms(obj[key], context);
+          }
+        }
+      }
+    }
+    
+    findQcms(data, { chapter: 'Unknown Chapter' });
+    return allQcms;
+  };
+
   const handleLoadFiles = () => {
     if (!pdfFile || !jsonFile) {
       setError('Please select both a PDF and a JSON file.');
@@ -39,14 +67,26 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFilesUploaded }) => {
       try {
         const text = e.target?.result as string;
         const data = JSON.parse(text);
-        // Simple validation of the JSON structure
+        
+        // Try to detect chapter format
         if (Array.isArray(data) && data.length > 0 && 'chapitre_nom' in data[0]) {
-          onFilesUploaded(pdfFile, data as ChapterFromFile[]);
-        } else {
-          throw new Error('JSON structure is invalid.');
+          onFilesUploaded(pdfFile, data as ChapterFromFile[], 'chapter');
+        } 
+        // Try to detect QCM format
+        else if (typeof data === 'object' && data !== null) {
+           const qcms = parseQcmJson(data);
+           if (qcms.length > 0) {
+              onFilesUploaded(pdfFile, qcms, 'qcm');
+           } else {
+              throw new Error('JSON is an object, but no valid QCM structure was found.');
+           }
+        }
+        else {
+          throw new Error('JSON structure is not a recognized format.');
         }
       } catch (err) {
-        setError('Failed to parse JSON file. Please ensure it is valid and has the correct structure.');
+        const message = err instanceof Error ? err.message : 'An unknown error occurred';
+        setError(`Failed to process JSON file: ${message}`);
         setIsLoading(false);
       }
     };
@@ -101,7 +141,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFilesUploaded }) => {
   return (
     <div className="max-w-4xl mx-auto w-full bg-gray-800 p-8 rounded-2xl shadow-2xl space-y-6 border border-gray-700">
       <h2 className="text-3xl font-bold text-center text-white mb-2">Upload Your Files</h2>
-      <p className="text-center text-gray-400 mb-8">Select a PDF document and its corresponding JSON chapter index.</p>
+      <p className="text-center text-gray-400 mb-8">Select a PDF and a corresponding JSON file (Chapter Index or QCM).</p>
 
       <div className="flex flex-col md:flex-row gap-6">
         <FileInputCard
@@ -114,7 +154,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFilesUploaded }) => {
           Icon={PdfIcon}
         />
         <FileInputCard
-          title="JSON Index"
+          title="JSON Data"
           file={jsonFile}
           onButtonClick={() => jsonInputRef.current?.click()}
           onFileChange={(e) => handleFileChange(e, 'json')}

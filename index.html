@@ -4,8 +4,12 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>PDF Chapter Verifier</title>
+    <title>PDF Verifier</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf_viewer.min.css"
+    />
     <style>
       /* Custom scrollbar for better aesthetics */
       ::-webkit-scrollbar {
@@ -21,6 +25,14 @@
       }
       ::-webkit-scrollbar-thumb:hover {
         background: #718096; /* bg-gray-500 */
+      }
+
+      /* PDF.js text layer overrides for dark mode */
+      .textLayer {
+        opacity: 0.5; /* Make text selection visible */
+      }
+      .textLayer .highlight {
+        background-color: rgba(234, 179, 8, 0.4); /* yellow-500 with opacity */
       }
     </style>
   <script type="importmap">

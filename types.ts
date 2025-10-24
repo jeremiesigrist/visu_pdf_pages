@@ -11,3 +11,14 @@ export interface ChapterFromFile {
 export interface Chapter extends ChapterFromFile {
   id: string;
 }
+
+export interface QCM {
+    id: string;
+    numero: number;
+    question: string;
+    options: Record<string, string>;
+    reponse_correcte: string;
+    explication: string;
+    sous_chapitre: string;
+    sourceChapter: string; // The parent chapter name
+}
