@@ -1,9 +1,9 @@
 
 import React, { useState, useRef } from 'react';
-import { Chapter } from '../types';
+import { ChapterFromFile } from '../types';
 
 interface FileUploadProps {
-  onFilesUploaded: (pdf: File, json: Chapter[]) => void;
+  onFilesUploaded: (pdf: File, json: ChapterFromFile[]) => void;
 }
 
 const FileUpload: React.FC<FileUploadProps> = ({ onFilesUploaded }) => {
@@ -41,7 +41,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onFilesUploaded }) => {
         const data = JSON.parse(text);
         // Simple validation of the JSON structure
         if (Array.isArray(data) && data.length > 0 && 'chapitre_nom' in data[0]) {
-          onFilesUploaded(pdfFile, data as Chapter[]);
+          onFilesUploaded(pdfFile, data as ChapterFromFile[]);
         } else {
           throw new Error('JSON structure is invalid.');
         }

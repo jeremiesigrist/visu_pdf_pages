@@ -1,5 +1,5 @@
 import React, { useState, lazy, Suspense } from 'react';
-import { Chapter } from './types';
+import { Chapter, ChapterFromFile } from './types';
 import FileUpload from './components/FileUpload';
 import JsonViewer from './components/JsonViewer';
 
@@ -23,27 +23,55 @@ const App: React.FC = () => {
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [jsonData, setJsonData] = useState<Chapter[] | null>(null);
   const [currentPage, setCurrentPage] = useState<number>(1);
-  const [activeChapterIndex, setActiveChapterIndex] = useState<number | null>(null);
+  const [activeChapterId, setActiveChapterId] = useState<string | null>(null);
   const [pdfSessionId, setPdfSessionId] = useState<number>(0);
 
-  const handleFilesUploaded = (pdf: File, json: Chapter[]) => {
+  const handleFilesUploaded = (pdf: File, json: ChapterFromFile[]) => {
+    const dataWithIds = json.map(chapter => ({
+        ...chapter,
+        id: crypto.randomUUID(),
+    }));
     setPdfFile(pdf);
-    setJsonData(json);
+    setJsonData(dataWithIds);
     setCurrentPage(1);
-    setActiveChapterIndex(null);
+    setActiveChapterId(null);
     setPdfSessionId(Date.now()); // Create a new session ID to force remount
   };
 
-  const handlePageSelect = (page: number, index: number) => {
+  const handlePageSelect = (page: number, id: string) => {
     setCurrentPage(page);
-    setActiveChapterIndex(index);
+    setActiveChapterId(id);
   };
 
   const resetApp = () => {
     setPdfFile(null);
     setJsonData(null);
     setCurrentPage(1);
-    setActiveChapterIndex(null);
+    setActiveChapterId(null);
+  };
+
+  const handleJsonUpdate = (updatedData: Chapter[]) => {
+    setJsonData(updatedData);
+  };
+
+  const handleExportJson = () => {
+    if (!jsonData) return;
+    
+    // Remove the internal 'id' field before exporting
+    const dataToExport = jsonData.map(({ id, ...rest }) => rest);
+
+    const jsonString = JSON.stringify(dataToExport, null, 2);
+    const blob = new Blob([jsonString], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'updated_chapters.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -54,13 +82,22 @@ const App: React.FC = () => {
           <h1 className="text-xl font-bold text-white">PDF Chapter Verifier</h1>
         </div>
         {pdfFile && jsonData && (
-            <button
-                onClick={resetApp}
-                className="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-200 flex items-center gap-2"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-              Load New Files
-            </button>
+            <div className="flex items-center gap-4">
+                <button
+                    onClick={handleExportJson}
+                    className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-200 flex items-center gap-2"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    Export JSON
+                </button>
+                <button
+                    onClick={resetApp}
+                    className="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-200 flex items-center gap-2"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                  Load New Files
+                </button>
+            </div>
         )}
       </header>
 
@@ -75,7 +112,8 @@ const App: React.FC = () => {
               <JsonViewer 
                 data={jsonData} 
                 onPageSelect={handlePageSelect} 
-                activeChapterIndex={activeChapterIndex}
+                activeChapterId={activeChapterId}
+                onDataChange={handleJsonUpdate}
               />
             </aside>
             <section className="w-3/5 h-full bg-gray-900 flex-grow">
